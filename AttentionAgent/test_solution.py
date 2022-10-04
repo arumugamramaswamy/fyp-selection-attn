@@ -13,6 +13,8 @@ def main(config):
     task = misc.utility.create_task(logger=logger)
     task.seed(config.seed)
 
+    task._render = True
+
     solution = misc.utility.create_solution()
     model_file = os.path.join(config.log_dir, config.model_filename)
     solution.load(model_file)

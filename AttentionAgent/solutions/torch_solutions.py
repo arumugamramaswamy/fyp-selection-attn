@@ -107,17 +107,17 @@ class SelfAttention(nn.Module):
         super(SelfAttention, self).__init__()
         self._layers = []
 
-        self._fc_q = nn.Linear(data_dim, dim_q)
+        self._fc_q = nn.Linear(dim_q, dim_q)
         self._layers.append(self._fc_q)
         self._fc_k = nn.Linear(data_dim, dim_q)
         self._layers.append(self._fc_k)
 
-    def forward(self, input_data):
+    def forward(self, input_data, query_data=None):
         # Expect input_data to be of shape (b, t, k).
         b, t, k = input_data.size()
 
         # Linear transforms.
-        queries = self._fc_q(input=input_data)  # (b, t, q)
+        queries = self._fc_q(input=query_data)  # (b, t, q)
         keys = self._fc_k(input=input_data)  # (b, t, q)
 
         # Attention matrix.
@@ -263,11 +263,11 @@ class MLPSolution(BaseTorchSolution):
         fc_output = self._fc_stack(inputs)
 
         if self._output_activation == 'tanh':
-            output = torch.tanh(fc_output).squeeze().numpy()
+            output = torch.tanh(fc_output).numpy()
         elif self._output_activation == 'softmax':
-            output = F.softmax(fc_output, dim=-1).squeeze().numpy()
+            output = F.softmax(fc_output, dim=-1).numpy()
         else:
-            output = fc_output.squeeze().numpy()
+            output = fc_output.numpy()
 
         return output
 
@@ -438,6 +438,194 @@ class VisionTaskSolution(BaseTorchSolution):
             centers = centers / self._image_size
 
         return self._mlp_solution.get_output(centers)
+
+    def reset(self):
+        self._selected_patch_centers = []
+        self._value_network_input_images = []
+        self._accumulated_gradients = None
+        self._mlp_solution.reset()
+        self._img_ix = 1
+        self._raw_importances = []
+
+    def set_log_dir(self, folder):
+        self._screen_dir = folder
+        if not os.path.exists(self._screen_dir):
+            os.makedirs(self._screen_dir)
+
+@gin.configurable
+class SelectionSolution(BaseTorchSolution):
+    """A general solution for vision based tasks."""
+
+    def __init__(self,
+                 query_dim,
+                 output_dim,
+                 output_activation,
+                 num_hiddens,
+                 l2_coefficient,
+                 top_k,
+                 data_dim,
+                 activation,
+                 use_lstm=False,
+                 ):
+        super().__init__()
+        self._top_k = top_k
+        self._l2_coefficient = l2_coefficient
+
+        self._attention = SelfAttention(
+            data_dim=data_dim, # 2
+            dim_q=query_dim, # 4
+        )
+        self._layers.extend(self._attention.layers)
+
+        self._mlp_solution = MLPSolution(
+            input_dim=self._top_k * 2 + 2 + 2,
+            num_hiddens=num_hiddens,
+            activation=activation,
+            output_dim=output_dim,
+            output_activation=output_activation,
+            l2_coefficient=l2_coefficient,
+            use_lstm=use_lstm,
+        )
+        self._layers.extend(self._mlp_solution.layers)
+
+        print('Number of parameters: {}'.format(
+            self.get_num_params_per_layer()))
+
+    def _get_output(self, inputs, update_filter):
+
+        other_pos = torch.tensor(inputs["other_pos"])
+        my_pos = torch.tensor(inputs["my_pos"])
+        my_vel = torch.tensor(inputs["my_vel"])
+        attention_matrix = self._attention(
+            other_pos,
+            torch.cat(
+                (
+                    my_pos.unsqueeze(-2),
+                    my_vel.unsqueeze(-2),
+                ),
+                dim=-1
+            )
+        )
+        # patch_importance_matrix.shape = (n, n)
+        patch_importance_matrix = torch.softmax(
+            attention_matrix, dim=-1)
+        # patch_importance.shape = (n,)
+        patch_importance = patch_importance_matrix.sum(dim=-2)
+        # extract top k important patches
+        inds = patch_importance.topk(self._top_k).indices
+
+        batch_size = patch_importance.shape[0]
+        selected_neighbours = other_pos[torch.arange(batch_size), inds.transpose(0,1)].transpose(0,1).flatten(1)
+
+        return self._mlp_solution.get_output(torch.cat([selected_neighbours, my_pos, my_vel], dim=-1))
+
+    def reset(self):
+        self._selected_patch_centers = []
+        self._value_network_input_images = []
+        self._accumulated_gradients = None
+        self._mlp_solution.reset()
+        self._img_ix = 1
+        self._raw_importances = []
+
+    def set_log_dir(self, folder):
+        self._screen_dir = folder
+        if not os.path.exists(self._screen_dir):
+            os.makedirs(self._screen_dir)
+
+
+@gin.configurable
+class SelectionSolutionSpread(BaseTorchSolution):
+    """A general solution for vision based tasks."""
+
+    def __init__(self,
+                 query_dim,
+                 output_dim,
+                 output_activation,
+                 num_hiddens,
+                 l2_coefficient,
+                 top_k,
+                 data_dim,
+                 activation,
+                 use_lstm=False,
+                 ):
+        super().__init__()
+        self._top_k = top_k
+        self._l2_coefficient = l2_coefficient
+
+        self._attention = SelfAttention(
+            data_dim=data_dim, # 2
+            dim_q=query_dim, # 4
+        )
+
+        self._attention_2 = SelfAttention(
+            data_dim=data_dim,
+            dim_q=query_dim+(self._top_k-1)*data_dim
+        )
+
+        self._layers.extend(self._attention.layers)
+        self._layers.extend(self._attention_2.layers)
+
+        self._mlp_solution = MLPSolution(
+            input_dim=self._top_k * 2 + (self._top_k-1)*2 + 2 + 2,
+            num_hiddens=num_hiddens,
+            activation=activation,
+            output_dim=output_dim,
+            output_activation=output_activation,
+            l2_coefficient=l2_coefficient,
+            use_lstm=use_lstm,
+        )
+
+        self._layers.extend(self._mlp_solution.layers)
+
+        print('Number of parameters: {}'.format(
+            self.get_num_params_per_layer()))
+
+    def _get_output(self, inputs, update_filter):
+
+        other_pos = torch.tensor(inputs["other_pos"])
+        entity_pos = torch.tensor(inputs["entity_pos"])
+
+        my_pos = torch.tensor(inputs["my_pos"])
+        my_vel = torch.tensor(inputs["my_vel"])
+
+        attention_matrix = self._attention(
+            other_pos,
+            torch.cat(
+                (
+                    my_pos.unsqueeze(-2),
+                    my_vel.unsqueeze(-2),
+                ),
+                dim=-1
+            )
+        )
+        # patch_importance_matrix.shape = (n, n)
+        patch_importance_matrix = torch.softmax(
+            attention_matrix, dim=-1)
+        # patch_importance.shape = (n,)
+        patch_importance = patch_importance_matrix.sum(dim=-2)
+        # extract top k important patches
+        inds = patch_importance.topk(self._top_k - 1).indices
+
+        batch_size = patch_importance.shape[0]
+        selected_neighbours = other_pos[torch.arange(batch_size), inds.transpose(0,1)].transpose(0,1).flatten(1)
+
+        query_2 = torch.cat([selected_neighbours, my_pos, my_vel], dim=-1)
+        attention_matrix = self._attention_2(
+            entity_pos,
+            query_2.unsqueeze(-2)
+        )
+        # patch_importance_matrix.shape = (n, n)
+        patch_importance_matrix = torch.softmax(
+            attention_matrix, dim=-1)
+        # patch_importance.shape = (n,)
+        patch_importance = patch_importance_matrix.sum(dim=-2)
+        # extract top k important patches
+        inds = patch_importance.topk(self._top_k).indices
+
+        batch_size = patch_importance.shape[0]
+        selected_entities = entity_pos[torch.arange(batch_size), inds.transpose(0,1)].transpose(0,1).flatten(1)
+
+        return self._mlp_solution.get_output(torch.cat([selected_neighbours, selected_entities, my_pos, my_vel], dim=-1))
 
     def reset(self):
         self._selected_patch_centers = []

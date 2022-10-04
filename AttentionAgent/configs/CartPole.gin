@@ -1,0 +1,35 @@
+import algorithms.cma
+import misc.utility
+import solutions.torch_solutions
+import tasks.gym_task
+
+
+# CMA configurations
+cma.CMA.population_size = 256
+cma.CMA.init_sigma = 0.1
+
+cma.CMAMaster.seed = 0
+cma.CMAMaster.n_repeat = 16
+cma.CMAMaster.max_iter = 2000
+cma.CMAMaster.eval_every_n_iter = 10
+cma.CMAMaster.n_eval_roll_outs = 4
+
+utility.get_es_master.es_algorithm = @cma.CMAMaster
+utility.get_es_worker.es_algorithm = @cma.CMAWorker
+
+
+# Solution configurations
+torch_solutions.MLPSolution.input_dim = 4
+torch_solutions.MLPSolution.num_hiddens = [16,]
+torch_solutions.MLPSolution.activation = "tanh"
+torch_solutions.MLPSolution.output_activation = "softmax"
+torch_solutions.MLPSolution.output_dim = 2
+torch_solutions.MLPSolution.use_lstm = False
+torch_solutions.MLPSolution.l2_coefficient = 0
+utility.create_solution.solution_loader = @torch_solutions.MLPSolution()
+
+
+# Task configurations
+utility.create_task.out_of_track_cap = 20
+utility.create_task.max_steps = 1000
+utility.create_task.task_loader = @gym_task.CartPoleTask()

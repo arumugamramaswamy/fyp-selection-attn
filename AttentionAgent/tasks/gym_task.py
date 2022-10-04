@@ -1,14 +1,30 @@
 import cv2
 import gin
 import gym
+import gym.vector
 from gym import spaces
 import numpy as np
 import os
 import tasks.abc_task
 import time
 import car_racing_variants
-from takecover_variants.doom_take_cover import DoomTakeCoverEnv
 
+from tasks.env.to_vec_env import to_vec_env
+from tasks.env.simple_cluster.env import parallel_env as simple_cluster_env
+from tasks.env.custom_simple_spread.env import parallel_env as simple_spread_env
+
+# from takecover_variants.doom_take_cover import DoomTakeCoverEnv
+
+def get_counter():
+    counter = 0
+    def count():
+        nonlocal counter
+        output = counter
+        counter += 1
+        return output
+    return count
+
+counter = get_counter()
 
 class GymTask(tasks.abc_task.BaseTask):
     """OpenAI gym tasks."""
@@ -63,7 +79,8 @@ class GymTask(tasks.abc_task.BaseTask):
         rewards = []
         done = False
         step_cnt = 0
-        while not done:
+        while not np.all(done) and step_cnt < 2000:
+    
             action = solution.get_output(inputs=ob, update_filter=not evaluate)
             action = self._process_action(action)
             ob, r, done, _ = self.step(action, evaluate)
@@ -86,6 +103,78 @@ class GymTask(tasks.abc_task.BaseTask):
 
         return actual_reward
 
+@gin.configurable
+class CartPoleTask(GymTask):
+    def create_task(self, **kwargs):
+        # self._env = gym.make("CartPole-v1")
+        self._env = gym.vector.SyncVectorEnv([lambda: gym.make("CartPole-v1")]*5)
+        return self
+
+    def seed(self, seed):
+        pass
+
+    def reset(self):
+        return self._env.reset()
+
+    def _process_action(self, action):
+        return action.argmax(axis=-1)
+
+    def step(self, action, evaluate):
+        obs, reward, done, info = self._env.step(action)
+        return obs, reward, done, info
+
+
+@gin.configurable
+class SimpleClusterTask(GymTask):
+    def create_task(self, **kwargs):
+        # self._env = gym.make("CartPole-v1")
+        self._env = to_vec_env(simple_cluster_env(N=6, K=3, local_ratio=0.9, max_cycles=25))
+        return self
+
+    def seed(self, seed):
+        pass
+
+    def reset(self):
+        return self._env.reset()
+    
+    # def _process_observation(self, observation):
+    #     shape = observation["other_pos"].shape
+    #     other_pos = observation["other_pos"].reshape(shape[0], shape[1]*shape[-1])
+    #     my_pos = observation["my_pos"]
+    #     my_vel = observation["my_vel"]
+
+    #     return np.concatenate([my_pos, my_vel, other_pos], axis=-1)
+
+    def _process_action(self, action):
+        return action.argmax(axis=-1)
+
+    def step(self, action, evaluate):
+        obs, reward, done, info = self._env.step(action)
+        return obs, reward, done, info
+
+@gin.configurable
+class SimpleSpreadTask(GymTask):
+    def create_task(self, **kwargs):
+        # self._env = gym.make("CartPole-v1")
+        self._env = to_vec_env(simple_spread_env(N=4, local_ratio=0.1, max_cycles=25))
+        return self
+
+    def seed(self, seed):
+        pass
+
+    def reset(self):
+        reset_count = counter()
+        if reset_count % 50000 == 0:
+            print(f"Resetting, step {reset_count}")
+            self._env = to_vec_env(simple_spread_env(N=10 + reset_count // 50000, local_ratio=0.1, max_cycles=225))
+        return self._env.reset()
+
+    def _process_action(self, action):
+        return action.argmax(axis=-1)
+
+    def step(self, action, evaluate):
+        obs, reward, done, info = self._env.step(action)
+        return obs, reward, done, info
 
 @gin.configurable
 class TakeCoverTask(GymTask):
