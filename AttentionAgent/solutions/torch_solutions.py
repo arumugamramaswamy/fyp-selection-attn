@@ -547,6 +547,7 @@ class SelectionSolutionSpread(BaseTorchSolution):
                  data_dim,
                  activation,
                  use_lstm=False,
+                 checkpoint_path = None
                  ):
         super().__init__()
         self._top_k = top_k
@@ -579,6 +580,9 @@ class SelectionSolutionSpread(BaseTorchSolution):
 
         print('Number of parameters: {}'.format(
             self.get_num_params_per_layer()))
+
+        if checkpoint_path is not None:
+            self.load(checkpoint_path)
 
     def _get_output(self, inputs, update_filter):
 

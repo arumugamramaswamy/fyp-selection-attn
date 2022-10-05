@@ -27,6 +27,7 @@ torch_solutions.SelectionSolutionSpread.l2_coefficient = 0
 torch_solutions.SelectionSolutionSpread.top_k = 3
 torch_solutions.SelectionSolutionSpread.data_dim = 2
 torch_solutions.SelectionSolutionSpread.activation = "tanh"
+torch_solutions.SelectionSolutionSpread.checkpoint_path = "log/model_2000.npz"
 
 utility.create_solution.solution_loader = @torch_solutions.SelectionSolutionSpread()
 

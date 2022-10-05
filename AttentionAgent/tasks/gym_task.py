@@ -163,10 +163,8 @@ class SimpleSpreadTask(GymTask):
         pass
 
     def reset(self):
-        reset_count = counter()
-        if reset_count % 50000 == 0:
-            print(f"Resetting, step {reset_count}")
-            self._env = to_vec_env(simple_spread_env(N=10 + reset_count // 50000, local_ratio=0.1, max_cycles=225))
+        # if reset_count % 50000 == 0:
+            # self._env = to_vec_env(simple_spread_env(N=4 + reset_count // 50000, local_ratio=0.1, max_cycles=250))
         return self._env.reset()
 
     def _process_action(self, action):

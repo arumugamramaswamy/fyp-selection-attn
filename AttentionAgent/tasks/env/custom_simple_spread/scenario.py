@@ -72,8 +72,10 @@ class CustomScenario(Scenario):
             for l in world.landmarks:
                 for a in world.agents:
                     if self.is_collision(l, a):
-                        rew += 10
                         break
+                else:
+                    rew -= 1
+
             return rew
 
         priority_queue = []
