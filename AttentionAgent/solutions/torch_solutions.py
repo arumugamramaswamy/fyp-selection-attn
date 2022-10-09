@@ -131,6 +131,34 @@ class SelfAttention(nn.Module):
     def layers(self):
         return self._layers
 
+class Attention(nn.Module):
+    """A simple self-attention solution."""
+
+    def __init__(self, data_dim, dim_q, dim_embedding):
+        super(Attention, self).__init__()
+        self._layers = []
+
+        self._fc_q = nn.Linear(dim_q, dim_embedding)
+        self._layers.append(self._fc_q)
+        self._fc_k = nn.Linear(data_dim, dim_embedding)
+        self._layers.append(self._fc_k)
+
+    def forward(self, input_data, query_data):
+        # Expect input_data to be of shape (b, t, k).
+        b, t, k = input_data.size()
+
+        # Linear transforms.
+        queries = self._fc_q(input=query_data)  # (b, t, q)
+        keys = self._fc_k(input=input_data)  # (b, t, q)
+
+        # Attention matrix.
+        dot = torch.bmm(queries, keys.transpose(1, 2))  # (b, t, t)
+        scaled_dot = torch.div(dot, torch.sqrt(torch.tensor(k).float()))
+        return keys, scaled_dot
+
+    @property
+    def layers(self):
+        return self._layers
 
 class FCStack(nn.Module):
     """Fully connected layers."""
@@ -799,6 +827,85 @@ class MeanEmbeddingSolution(BaseTorchSolution):
         return self._mlp_solution.get_output(
             torch.cat([
                 torch.tensor(mean_embeddings),
+                my_vel
+            ], dim=-1)
+        )
+
+    def reset(self):
+        self._selected_patch_centers = []
+        self._value_network_input_images = []
+        self._accumulated_gradients = None
+        self._mlp_solution.reset()
+        self._img_ix = 1
+        self._raw_importances = []
+
+    def set_log_dir(self, folder):
+        self._screen_dir = folder
+        if not os.path.exists(self._screen_dir):
+            os.makedirs(self._screen_dir)
+
+@gin.configurable
+class AttentionSolution(BaseTorchSolution):
+    """A general solution for vision based tasks."""
+
+    def __init__(self,
+                 output_dim,
+                 query_dim,
+                 embedding_dim,
+                 output_activation,
+                 num_hiddens,
+                 l2_coefficient,
+                 data_dim,
+                 activation,
+                 use_lstm=False,
+                 checkpoint_path = None
+                 ):
+        super().__init__()
+        self._l2_coefficient = l2_coefficient
+
+        self._attention = Attention(data_dim, query_dim, embedding_dim)
+        self._layers.extend(self._attention.layers)
+
+        self._mlp_solution = MLPSolution(
+            input_dim=embedding_dim + 2,
+            num_hiddens=num_hiddens,
+            activation=activation,
+            output_dim=output_dim,
+            output_activation=output_activation,
+            l2_coefficient=l2_coefficient,
+            use_lstm=use_lstm,
+        )
+        self._layers.extend(self._mlp_solution.layers)
+
+        print('Number of parameters: {}'.format(
+            self.get_num_params_per_layer()))
+
+        if checkpoint_path is not None:
+            self.load(checkpoint_path)
+
+    def _get_output(self, inputs, update_filter):
+
+        other_pos = torch.tensor(inputs["other_pos"])
+        other_pos_one_hot = torch.zeros((*other_pos.shape[:-1], 2))
+        other_pos_one_hot[:, :, -2] = 1
+        other_pos = torch.cat([other_pos, other_pos_one_hot], dim=-1)
+
+        entity_pos = torch.tensor(inputs["entity_pos"])
+        entity_pos_one_hot = torch.zeros((*entity_pos.shape[:-1], 2))
+        entity_pos_one_hot[:, :, -1] = 1
+        entity_pos = torch.cat([entity_pos, entity_pos_one_hot], dim=-1)
+
+        all_pos = torch.cat([other_pos, entity_pos], dim=-2)
+
+        my_vel = torch.tensor(inputs["my_vel"])
+
+        attn_vectors, attention_matrix = self._attention(all_pos, my_vel.unsqueeze(-2))
+        attention_matrix = torch.softmax(attention_matrix, dim=-1)
+        attn_output = torch.bmm(attention_matrix, attn_vectors).squeeze(-2)
+
+        return self._mlp_solution.get_output(
+            torch.cat([
+                attn_output,
                 my_vel
             ], dim=-1)
         )
