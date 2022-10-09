@@ -25,6 +25,8 @@ class BaseTorchSolution(solutions.abc_solution.BaseSolution):
         raise NotImplementedError()
 
     def get_params(self):
+
+
         params = []
         for layer in self._layers:
             weight_dict = layer.state_dict()
@@ -107,17 +109,17 @@ class SelfAttention(nn.Module):
         super(SelfAttention, self).__init__()
         self._layers = []
 
-        self._fc_q = nn.Linear(dim_q, dim_q)
+        self._fc_q = nn.Linear(data_dim, dim_q)
         self._layers.append(self._fc_q)
         self._fc_k = nn.Linear(data_dim, dim_q)
         self._layers.append(self._fc_k)
 
-    def forward(self, input_data, query_data=None):
+    def forward(self, input_data):
         # Expect input_data to be of shape (b, t, k).
         b, t, k = input_data.size()
 
         # Linear transforms.
-        queries = self._fc_q(input=query_data)  # (b, t, q)
+        queries = self._fc_q(input=input_data)  # (b, t, q)
         keys = self._fc_k(input=input_data)  # (b, t, q)
 
         # Attention matrix.
@@ -630,6 +632,176 @@ class SelectionSolutionSpread(BaseTorchSolution):
         selected_entities = entity_pos[torch.arange(batch_size), inds.transpose(0,1)].transpose(0,1).flatten(1)
 
         return self._mlp_solution.get_output(torch.cat([selected_neighbours, selected_entities, my_pos, my_vel], dim=-1))
+
+    def reset(self):
+        self._selected_patch_centers = []
+        self._value_network_input_images = []
+        self._accumulated_gradients = None
+        self._mlp_solution.reset()
+        self._img_ix = 1
+        self._raw_importances = []
+
+    def set_log_dir(self, folder):
+        self._screen_dir = folder
+        if not os.path.exists(self._screen_dir):
+            os.makedirs(self._screen_dir)
+
+@gin.configurable
+class SelectionSolutionSpreadSelfAttn(BaseTorchSolution):
+    """A general solution for vision based tasks."""
+
+    def __init__(self,
+                 query_dim,
+                 output_dim,
+                 output_activation,
+                 num_hiddens,
+                 l2_coefficient,
+                 top_k,
+                 data_dim,
+                 activation,
+                 use_lstm=False,
+                 checkpoint_path = None
+                 ):
+        super().__init__()
+        self._top_k = top_k
+        self._l2_coefficient = l2_coefficient
+
+        self._attention = SelfAttention(
+            data_dim=data_dim, # 2 + 2
+            dim_q=query_dim, # 8
+        )
+
+        self._layers.extend(self._attention.layers)
+
+        self._mlp_solution = MLPSolution(
+            input_dim=self._top_k * 4 + 2,
+            num_hiddens=num_hiddens,
+            activation=activation,
+            output_dim=output_dim,
+            output_activation=output_activation,
+            l2_coefficient=l2_coefficient,
+            use_lstm=use_lstm,
+        )
+
+        self._layers.extend(self._mlp_solution.layers)
+
+        print('Number of parameters: {}'.format(
+            self.get_num_params_per_layer()))
+
+        if checkpoint_path is not None:
+            self.load(checkpoint_path)
+
+    def _get_output(self, inputs, update_filter):
+
+        other_pos = torch.tensor(inputs["other_pos"])
+        other_pos_one_hot = torch.zeros((*other_pos.shape[:-1], 2))
+        other_pos_one_hot[:, :, -2] = 1
+        other_pos = torch.cat([other_pos, other_pos_one_hot], dim=-1)
+
+        entity_pos = torch.tensor(inputs["entity_pos"])
+        entity_pos_one_hot = torch.zeros((*entity_pos.shape[:-1], 2))
+        entity_pos_one_hot[:, :, -1] = 1
+        entity_pos = torch.cat([entity_pos, entity_pos_one_hot], dim=-1)
+
+        all_pos = torch.cat([other_pos, entity_pos], dim=-2)
+
+        my_vel = torch.tensor(inputs["my_vel"])
+
+        attention_matrix = self._attention(all_pos)
+        # patch_importance_matrix.shape = (n, n)
+        patch_importance_matrix = torch.softmax(
+            attention_matrix, dim=-1)
+        # patch_importance.shape = (n,)
+        patch_importance = patch_importance_matrix.sum(dim=-2)
+        # extract top k important patches
+        inds = patch_importance.topk(self._top_k).indices
+
+        batch_size = patch_importance.shape[0]
+        selected_pos = all_pos[torch.arange(batch_size), inds.transpose(0,1)].transpose(0,1).flatten(1)
+
+        return self._mlp_solution.get_output(torch.cat([selected_pos, my_vel], dim=-1))
+
+    def reset(self):
+        self._selected_patch_centers = []
+        self._value_network_input_images = []
+        self._accumulated_gradients = None
+        self._mlp_solution.reset()
+        self._img_ix = 1
+        self._raw_importances = []
+
+    def set_log_dir(self, folder):
+        self._screen_dir = folder
+        if not os.path.exists(self._screen_dir):
+            os.makedirs(self._screen_dir)
+
+@gin.configurable
+class MeanEmbeddingSolution(BaseTorchSolution):
+    """A general solution for vision based tasks."""
+
+    def __init__(self,
+                 output_dim,
+                 output_activation,
+                 num_hiddens,
+                 l2_coefficient,
+                 data_dim,
+                 activation,
+                 use_lstm=False,
+                 checkpoint_path = None
+                 ):
+        super().__init__()
+        self._l2_coefficient = l2_coefficient
+
+        self._me_layer = MLPSolution(
+            input_dim=data_dim,
+            num_hiddens=[],
+            activation=activation,
+            output_dim=num_hiddens[0],
+            output_activation=activation,
+            l2_coefficient=l2_coefficient,
+            use_lstm=use_lstm,
+        )
+        self._layers.extend(self._me_layer.layers)
+
+        self._mlp_solution = MLPSolution(
+            input_dim=num_hiddens[0] + 2,
+            num_hiddens=num_hiddens[1:],
+            activation=activation,
+            output_dim=output_dim,
+            output_activation=output_activation,
+            l2_coefficient=l2_coefficient,
+            use_lstm=use_lstm,
+        )
+        self._layers.extend(self._mlp_solution.layers)
+
+        print('Number of parameters: {}'.format(
+            self.get_num_params_per_layer()))
+
+        if checkpoint_path is not None:
+            self.load(checkpoint_path)
+
+    def _get_output(self, inputs, update_filter):
+
+        other_pos = torch.tensor(inputs["other_pos"])
+        other_pos_one_hot = torch.zeros((*other_pos.shape[:-1], 2))
+        other_pos_one_hot[:, :, -2] = 1
+        other_pos = torch.cat([other_pos, other_pos_one_hot], dim=-1)
+
+        entity_pos = torch.tensor(inputs["entity_pos"])
+        entity_pos_one_hot = torch.zeros((*entity_pos.shape[:-1], 2))
+        entity_pos_one_hot[:, :, -1] = 1
+        entity_pos = torch.cat([entity_pos, entity_pos_one_hot], dim=-1)
+
+        all_pos = torch.cat([other_pos, entity_pos], dim=-2)
+
+        my_vel = torch.tensor(inputs["my_vel"])
+
+        mean_embeddings = self._me_layer.get_output(all_pos).mean(axis=-2)
+        return self._mlp_solution.get_output(
+            torch.cat([
+                torch.tensor(mean_embeddings),
+                my_vel
+            ], dim=-1)
+        )
 
     def reset(self):
         self._selected_patch_centers = []

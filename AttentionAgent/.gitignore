@@ -1,0 +1,3 @@
+*Log/
+train_local_master.sh
+train_local_workers.sh
