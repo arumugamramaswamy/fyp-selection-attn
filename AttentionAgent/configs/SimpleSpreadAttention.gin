@@ -20,10 +20,10 @@ utility.get_es_worker.es_algorithm = @cma.CMAWorker
 
 # Solution configurations
 torch_solutions.AttentionSolution.output_dim = 5
-torch_solutions.AttentionSolution.query_dim = 2
+# torch_solutions.AttentionSolution.query_dim = 2
 torch_solutions.AttentionSolution.embedding_dim = 16
 torch_solutions.AttentionSolution.output_activation = "softmax"
-torch_solutions.AttentionSolution.num_hiddens = [16,]
+torch_solutions.AttentionSolution.num_hiddens = []
 torch_solutions.AttentionSolution.l2_coefficient = 0
 torch_solutions.AttentionSolution.data_dim = 4
 torch_solutions.AttentionSolution.activation = "tanh"

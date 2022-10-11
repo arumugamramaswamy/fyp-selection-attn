@@ -850,7 +850,6 @@ class AttentionSolution(BaseTorchSolution):
 
     def __init__(self,
                  output_dim,
-                 query_dim,
                  embedding_dim,
                  output_activation,
                  num_hiddens,
@@ -863,7 +862,7 @@ class AttentionSolution(BaseTorchSolution):
         super().__init__()
         self._l2_coefficient = l2_coefficient
 
-        self._attention = Attention(data_dim, query_dim, embedding_dim)
+        self._attention = Attention(data_dim, data_dim, embedding_dim)
         self._layers.extend(self._attention.layers)
 
         self._mlp_solution = MLPSolution(
@@ -899,9 +898,9 @@ class AttentionSolution(BaseTorchSolution):
 
         my_vel = torch.tensor(inputs["my_vel"])
 
-        attn_vectors, attention_matrix = self._attention(all_pos, my_vel.unsqueeze(-2))
+        attn_vectors, attention_matrix = self._attention(all_pos, all_pos)
         attention_matrix = torch.softmax(attention_matrix, dim=-1)
-        attn_output = torch.bmm(attention_matrix, attn_vectors).squeeze(-2)
+        attn_output = torch.bmm(attention_matrix, attn_vectors).mean(-2)
 
         return self._mlp_solution.get_output(
             torch.cat([
