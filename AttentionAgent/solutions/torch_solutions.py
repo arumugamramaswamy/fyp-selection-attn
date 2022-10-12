@@ -694,15 +694,12 @@ class SelectionSolutionSpreadSelfAttn(BaseTorchSolution):
         self._top_k = top_k
         self._l2_coefficient = l2_coefficient
 
-        self._attention = SelfAttention(
-            data_dim=data_dim, # 2 + 2
-            dim_q=query_dim, # 8
-        )
+        self._attention = Attention(data_dim, data_dim, query_dim)
 
         self._layers.extend(self._attention.layers)
 
         self._mlp_solution = MLPSolution(
-            input_dim=self._top_k * 4 + 2,
+            input_dim=self._top_k * query_dim + 2,
             num_hiddens=num_hiddens,
             activation=activation,
             output_dim=output_dim,
@@ -735,7 +732,7 @@ class SelectionSolutionSpreadSelfAttn(BaseTorchSolution):
 
         my_vel = torch.tensor(inputs["my_vel"])
 
-        attention_matrix = self._attention(all_pos)
+        all_pos, attention_matrix = self._attention(all_pos, all_pos)
         # patch_importance_matrix.shape = (n, n)
         patch_importance_matrix = torch.softmax(
             attention_matrix, dim=-1)
