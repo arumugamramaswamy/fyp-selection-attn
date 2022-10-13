@@ -22,12 +22,13 @@ utility.get_es_worker.es_algorithm = @cma.CMAWorker
 torch_solutions.SelectionSolutionSpreadSelfAttn.query_dim = 8
 torch_solutions.SelectionSolutionSpreadSelfAttn.output_dim = 5
 torch_solutions.SelectionSolutionSpreadSelfAttn.output_activation = "softmax"
-torch_solutions.SelectionSolutionSpreadSelfAttn.num_hiddens = []
+torch_solutions.SelectionSolutionSpreadSelfAttn.num_hiddens = [16, ]
 torch_solutions.SelectionSolutionSpreadSelfAttn.l2_coefficient = 0
 torch_solutions.SelectionSolutionSpreadSelfAttn.top_k = 5
 torch_solutions.SelectionSolutionSpreadSelfAttn.data_dim = 4
 torch_solutions.SelectionSolutionSpreadSelfAttn.activation = "tanh"
-# torch_solutions.SelectionSolutionSpreadSelfAttn.checkpoint_path = "log/best_model.npz"
+# torch_solutions.SelectionSolutionSpreadSelfAttn.checkpoint_path = "log/model_800.npz"
+# torch_solutions.SelectionSolutionSpreadSelfAttn.use_lstm = True
 
 utility.create_solution.solution_loader = @torch_solutions.SelectionSolutionSpreadSelfAttn()
 

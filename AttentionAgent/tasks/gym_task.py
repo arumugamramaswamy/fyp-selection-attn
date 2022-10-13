@@ -156,7 +156,7 @@ class SimpleClusterTask(GymTask):
 class SimpleSpreadTask(GymTask):
     def create_task(self, **kwargs):
         # self._env = gym.make("CartPole-v1")
-        self._env = to_vec_env(simple_spread_env(N=4, local_ratio=0.1, max_cycles=25))
+        self._env = to_vec_env(simple_spread_env(N=7, local_ratio=0.1, max_cycles=25))
         return self
 
     def seed(self, seed):
