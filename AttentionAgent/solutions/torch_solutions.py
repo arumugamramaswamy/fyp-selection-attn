@@ -734,8 +734,7 @@ class SelectionSolutionSpreadSelfAttn(BaseTorchSolution):
 
         all_pos, attention_matrix = self._attention(all_pos, all_pos)
         # patch_importance_matrix.shape = (n, n)
-        patch_importance_matrix = torch.softmax(
-            attention_matrix, dim=-1)
+        patch_importance_matrix = torch.tanh(attention_matrix)
         # patch_importance.shape = (n,)
         patch_importance = patch_importance_matrix.sum(dim=-2)
         # extract top k important patches
