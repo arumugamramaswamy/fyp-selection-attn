@@ -699,7 +699,7 @@ class SelectionSolutionSpreadSelfAttn(BaseTorchSolution):
         self._layers.extend(self._attention.layers)
 
         self._mlp_solution = MLPSolution(
-            input_dim=self._top_k * 4 + 2,
+            input_dim=self._top_k * query_dim + 2,
             num_hiddens=num_hiddens,
             activation=activation,
             output_dim=output_dim,
@@ -732,7 +732,7 @@ class SelectionSolutionSpreadSelfAttn(BaseTorchSolution):
 
         my_vel = torch.tensor(inputs["my_vel"])
 
-        _, attention_matrix = self._attention(all_pos, all_pos)
+        all_pos, attention_matrix = self._attention(all_pos, all_pos)
         # patch_importance_matrix.shape = (n, n)
         patch_importance_matrix = torch.tanh(attention_matrix)
         # patch_importance.shape = (n,)
