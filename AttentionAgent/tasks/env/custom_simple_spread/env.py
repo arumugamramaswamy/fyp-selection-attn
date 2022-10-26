@@ -23,6 +23,9 @@ class CustomSimpleEnv(SimpleEnv):
             local_ratio=local_ratio,
         )
 
+        self.landmark_triggered = False
+        self.landmark_steps = 5
+
         self.observation_spaces = {}
 
         for agent in self.possible_agents:
@@ -35,6 +38,39 @@ class CustomSimpleEnv(SimpleEnv):
                     "comm": spaces.Box(-np.inf, np.inf, (N - 1, world.dim_c)),
                 }
             )
+
+    def reset(self):
+        super().reset()
+        self.landmark_triggered = False
+        self.landmark_steps = 5
+
+
+    def _execute_world_step(self):
+        super()._execute_world_step()
+        if self.landmark_triggered:
+            self.landmark_steps -= 1
+            if self.landmark_steps == 0:
+
+                for a in self.agents:
+                    self.dones[a] = True
+
+                unoccupied = len(self.agents)
+                for l in self.world.landmakrs:
+                    for a in self.world.agents:
+                        if self.scenario.is_collision(l, a):
+                            unoccupied -= 1
+                            break
+                            
+                final_reward = unoccupied * -20
+                for agent in self.world.agents:
+                    self.rewards[agent.name] += final_reward * (1 - self.local_ratio)
+
+        else:
+            for landmark in self.world.landmarks:
+                for agent in self.world.agents:
+                    if self.scenario.is_collision(landmark, agent):
+                        self.landmark_triggered = True
+                        return
 
     def observe(self, agent):
         return self.scenario.observation(
@@ -67,6 +103,7 @@ class raw_env(CustomSimpleEnv):
         continuous_actions=False,
         reward_only_single_agent=False,
         reward_agent_for_closest_landmark=False,
+        k=None,
     ):
         assert (
             0.0 <= local_ratio <= 1.0
@@ -75,6 +112,7 @@ class raw_env(CustomSimpleEnv):
             shuffle=shuffle,
             reward_only_single_agent=reward_only_single_agent,
             reward_agent_for_closest_landmark=reward_agent_for_closest_landmark,
+            k=k,
         )
         world = scenario.make_world(N)
         super().__init__(

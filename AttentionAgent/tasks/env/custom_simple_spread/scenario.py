@@ -16,11 +16,13 @@ class CustomScenario(Scenario):
         shuffle=False,
         reward_only_single_agent=False,
         reward_agent_for_closest_landmark=False,
+        k=None,
     ) -> None:
         super().__init__()
         self.shuffle = shuffle
         self._reward_only_single_agent = reward_only_single_agent
         self._reward_agent_for_closest_landmark = reward_agent_for_closest_landmark
+        self._k = k
 
     def observation(self, agent, world):
         entity_pos = []
@@ -36,7 +38,11 @@ class CustomScenario(Scenario):
             other_pos.append(other.state.p_pos - agent.state.p_pos)
 
         entity_pos = np.array(entity_pos, dtype=np.float32)
-        other_pos = np.array(other_pos, dtype=np.float32)
+        other_pos = np.array(sorted(other_pos, key=lambda x: np.linalg.norm(x)))
+
+        if self._k is not None:
+            other_pos = other_pos[:self._k]
+
         comm = np.array(comm, dtype=np.float32)
 
         if self.shuffle:
